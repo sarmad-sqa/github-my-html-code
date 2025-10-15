@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synchronized Lyrics with MP4 Download</title>
+<style>
+/* ===== your previous CSS kept exactly as it is ===== */
+body {
+  font-family: 'Segoe UI', Arial, sans-serif;
+  background: linear-gradient(-45deg, #1e3c72, #2a5298, #764ba2, #667eea);
+  background-size: 400% 400%;
+  animation: gradientBG 15s ease infinite;
+  color: white;
+  margin: 0;
+  padding: 20px;
+}
+@keyframes gradientBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 30px;
+  border-radius: 20px;
+  box-shadow: 0 0 25px rgba(0,0,0,0.4);
+  backdrop-filter: blur(6px);
+  text-align: center;
+}
+h1 { color: #FFD700; margin-bottom: 20px; font-weight: bold; letter-spacing: 1px; }
+textarea {
+  width: 100%; height: 150px; padding: 15px;
+  border: 2px solid #4a5568; border-radius: 12px;
+  background: rgba(0,0,0,0.3); color: white; font-size: 16px;
+}
+button {
+  background: linear-gradient(45deg,#4CAF50,#45a049); color:white;
+  border:none; padding:12px 25px; border-radius:50px; cursor:pointer;
+  margin:10px 5px; font-weight:bold;
+}
+button:hover { transform:scale(1.05); background:linear-gradient(45deg,#3e8e41,#2e7031); }
+#status { margin:20px 0; padding:15px; border-radius:12px; background:rgba(255,255,255,0.15); }
+#lyricsDisplay {
+  position: relative; width:100%; max-width:640px; height:200px;
+  margin:0 auto; border-radius:15px; overflow:hidden;
+  border:3px solid #4682B4; display:flex; align-items:center; justify-content:center;
+  color:white; font-size:30px; font-weight:bold; text-align:center;
+  padding:20px; z-index:1; box-shadow:0 0 25px rgba(0,0,0,0.4);
+}
+#lyricsDisplay::before {
+  content:""; position:absolute; top:0; left:0; width:200%; height:200%;
+  background:conic-gradient(from 0deg,#1a2a6c,#b21f1f,#fdbb2d,#1a2a6c);
+  animation:rotateGradient 12s linear infinite; z-index:0; opacity:0.6;
+}
+@keyframes rotateGradient { 0%{transform:rotate(0deg);}100%{transform:rotate(360deg);} }
+#lyricsDisplay::after {
+  content:""; position:absolute; inset:0; background:rgba(0,0,0,0.45); z-index:1;
+}
+#lyricsDisplay span { position:relative; z-index:2; }
+.current-word {
+  color:#FFD700; text-shadow:0 0 20px #FFD700,0 0 40px #FFD700,0 0 60px #FFD700;
+  animation:glow 1.5s ease-in-out infinite alternate;
+}
+@keyframes glow { from{text-shadow:0 0 10px #FFD700;} to{text-shadow:0 0 25px #FFFF33;} }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🎵 Perfect Synchronized Lyrics 🎵</h1>
+  <textarea id="urduInput" placeholder="اردو پیراگراف یہاں لکھیں"></textarea><br><br>
+  <button onclick="loadParagraph()">پیراگراف لوڈ کریں</button>
+  <button onclick="startSynchronized()">آواز شروع کریں / روکیں</button>
+  <button id="recordBtn">🎬 Start Recording</button>
+  <a id="downloadLink" style="display:none;margin-left:10px;">⬇️ Download MP4</a>
+  <div id="status"></div>
+  <div id="lyricsDisplay">لفظ یہاں دکھائی دے گا</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.4/dist/ffmpeg.min.js"></script>
+<script>
+const paragraphDictionary = {
+  "صبح کی پہلی کرن نے دنیا کو جگا دیا۔ چڑیاں درختوں پر چہچہا رہی تھیں، اور ہوا کے ساتھ پھولوں کی خوشبو ہر طرف پھیل رہی تھی۔ میں نے کھڑکی سے باہر دیکھا، تو دیکھا کہ یہ ایک خوبصورت دن ہے۔ میں ٹھیک ہوں، آپ کیسے ہیں؟ شکریہ کہ آپ نے میرا خیال رکھا۔ الوداع، ملتے ہیں کل۔":
+  "The first ray of morning woke up the world. Birds were chirping on trees, and the fragrance of flowers spread everywhere with the wind. I looked out the window and saw that it was a beautiful day. I am fine, how are you? Thank you for caring about me. Goodbye, see you tomorrow."
+};
+
+function loadParagraph(){
+  const urduParagraph=Object.keys(paragraphDictionary)[0];
+  document.getElementById('urduInput').value=urduParagraph;
+}
+
+let isPlaying=false;
+let recorder, chunks=[];
+
+function startSynchronized(){
+  const urduInput=document.getElementById('urduInput').value.trim();
+  const statusDiv=document.getElementById('status');
+  const lyricsDisplay=document.getElementById('lyricsDisplay');
+  if(!urduInput){ statusDiv.innerHTML='<p style="color:red">⚠ پہلے پیراگراف لوڈ کریں</p>'; return;}
+  if(isPlaying){ speechSynthesis.cancel(); isPlaying=false;
+    lyricsDisplay.textContent="⏸️ روک دیا گیا";
+    statusDiv.innerHTML='<p style="color:orange">⏹️ آواز بند ہو گئی</p>'; return;
+  }
+
+  let englishText=paragraphDictionary[urduInput];
+  if(!englishText){ statusDiv.innerHTML='<p style="color:red">❌ یہ پیراگراف ڈکشنری میں نہیں ہے</p>'; return; }
+
+  isPlaying=true;
+  statusDiv.innerHTML='<p style="color:lightgreen">🔊 آواز چل رہی ہے...</p>';
+  lyricsDisplay.textContent="";
+
+  const utter=new SpeechSynthesisUtterance(englishText);
+  utter.lang='en-US'; utter.rate=0.75;
+  const voices=speechSynthesis.getVoices();
+  utter.voice=voices.find(v=>v.name.includes("Google US English"))||voices[0];
+
+  const words=englishText.split(/\s+/);
+  utter.onboundary=(e)=>{
+    if(e.charIndex!==undefined){
+      const spoken=englishText.substring(0,e.charIndex);
+      const count=spoken.split(/\s+/).filter(w=>w.trim()!=="").length;
+      const prev=words[count-1]||"",cur=words[count]||"",next=words[count+1]||"";
+      lyricsDisplay.innerHTML=`
+        <span style="opacity:0.4">${prev.replace(/[.,?!]/g,'')}</span>
+        &nbsp;<span class="current-word">${cur.replace(/[.,?!]/g,'')}</span>
+        &nbsp;<span style="opacity:0.4">${next.replace(/[.,?!]/g,'')}</span>`;
+    }
+  };
+  utter.onend=()=>{isPlaying=false;lyricsDisplay.innerHTML='<span style="color:#4CAF50">✅ مکمل!</span>';statusDiv.innerHTML='<p style="color:lightgreen">✅ مکمل!</p>';};
+  speechSynthesis.cancel(); speechSynthesis.speak(utter);
+}
+
+/* ===== Recording + MP4 conversion ===== */
+document.getElementById("recordBtn").addEventListener("click", async()=>{
+  const scene=document.querySelector(".container");
+  const stream=scene.captureStream(30);
+  recorder=new MediaRecorder(stream,{mimeType:"video/webm"});
+  chunks=[];
+  recorder.ondataavailable=e=>chunks.push(e.data);
+  recorder.onstop=async()=>{
+    const blob=new Blob(chunks,{type:"video/webm"});
+    const buffer=await blob.arrayBuffer();
+    const {createFFmpeg,fetchFile}=FFmpeg;
+    const ffmpeg=createFFmpeg({log:true});
+    await ffmpeg.load();
+    await ffmpeg.FS("writeFile","input.webm",new Uint8Array(buffer));
+    await ffmpeg.run("-i","input.webm","output.mp4");
+    const data=ffmpeg.FS("readFile","output.mp4");
+    const url=URL.createObjectURL(new Blob([data.buffer],{type:"video/mp4"}));
+    const link=document.getElementById("downloadLink");
+    link.href=url; link.download="dua_video.mp4";
+    link.style.display="inline-block";
+  };
+  recorder.start();
+  document.getElementById("status").innerHTML="<p style='color:yellow'>🔴 Recording started... Speak Dua!</p>";
+  await startSynchronized();
+  setTimeout(()=>{ recorder.stop(); document.getElementById("status").innerHTML="<p style='color:lightgreen'>✅ Recording complete</p>"; },15000);
+});
+</script>
+</body>
+</html>
